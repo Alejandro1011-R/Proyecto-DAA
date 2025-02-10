@@ -53,34 +53,6 @@ def generate_instance(instance_id, min_scenes=8, max_scenes=40, min_actors=8, ma
     print(f"Instance {instance_id} saved to {filename}")
     return instance_data
 
-# MILP Solver using model from the paper
-
-def solve_milp(instance_data):
-    solver = pywraplp.Solver.CreateSolver('SCIP')
-    if not solver:
-        print("Solver not available.")
-        return None
-    
-    num_scenes = instance_data["num_scenes"]
-    num_actors = instance_data["num_actors"]
-    planning_horizon = instance_data["planning_horizon"]
-    
-    # Decision Variables
-    x = {(i, j): solver.BoolVar(f'x_{i}_{j}') for i in range(num_scenes) for j in range(num_scenes) if i != j}
-    y = {(i, j): solver.BoolVar(f'y_{i}_{j}') for i in range(num_scenes) for j in range(1, planning_horizon + 1)}
-    t = {i: solver.IntVar(0, planning_horizon, f't_{i}') for i in range(num_scenes)}
-    e = {i: solver.IntVar(0, planning_horizon, f'e_{i}') for i in range(num_actors)}
-    l = {i: solver.IntVar(0, planning_horizon, f'l_{i}') for i in range(num_actors)}
-    
-    # Objective function (minimize total actor and location costs)
-    objective = solver.Objective()
-    for i in range(num_actors):
-        objective.SetCoefficient(l[i] - e[i] + 1, instance_data["actor_wages"][f"a{i}"])
-    objective.SetMinimization()
-    
-    solver.Solve()
-    print("MILP solution computed.")
-
 # Iterated Local Search (ILS)
 
 def compute_cost(schedule, instance_data):
@@ -101,17 +73,26 @@ def compute_cost(schedule, instance_data):
     
     return total_cost
 
+def perturb_schedule(schedule):
+    """Applies a perturbation by swapping two random scenes."""
+    i, j = random.sample(range(len(schedule)), 2)
+    schedule[i], schedule[j] = schedule[j], schedule[i]
+    return schedule
+
 def solve_ils(instance_data):
     num_scenes = instance_data["num_scenes"]
     
     def local_search(schedule):
-        random.shuffle(schedule)
+        for _ in range(10):  # Apply local moves
+            new_schedule = perturb_schedule(schedule[:])
+            if compute_cost(new_schedule, instance_data) < compute_cost(schedule, instance_data):
+                schedule = new_schedule
         return schedule
     
     best_schedule = list(range(num_scenes))
     best_cost = compute_cost(best_schedule, instance_data)
     
-    for _ in range(100):  # Number of iterations
+    for _ in range(100):  # Fixed termination criteria
         new_schedule = local_search(best_schedule[:])
         new_cost = compute_cost(new_schedule, instance_data)
         if new_cost < best_cost:
@@ -119,8 +100,7 @@ def solve_ils(instance_data):
     
     print("ILS solution computed.", best_schedule, "Cost:", best_cost)
 
-# Example: Generate 5 test instances and test both algorithms
+# Example: Generate 5 test instances and test the ILS solver
 for i in range(5):
     instance = generate_instance(i)
-    solve_milp(instance)
     solve_ils(instance)
